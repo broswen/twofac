@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/broswen/twofac/code"
+	"github.com/segmentio/ksuid"
 )
 
 type Response events.APIGatewayProxyResponse
@@ -35,18 +37,24 @@ func Handler(ctx context.Context, event Request) (Response, error) {
 
 	phoneNumber := event.PathParameters["number"]
 	xapikey := event.Headers["x-api-key"]
+	id, err := ksuid.NewRandom()
+	if err != nil {
+		log.Println(err)
+		return Response{StatusCode: http.StatusInternalServerError}, nil
+	}
 
 	c := code.Generate(6)
 	log.Println("generated code", c)
 
-	_, err := dynamoClient.PutItem(context.TODO(), &dynamodb.PutItemInput{
+	_, err = dynamoClient.PutItem(context.TODO(), &dynamodb.PutItemInput{
 		TableName: aws.String(os.Getenv("CODETABLE")),
 		Item: map[string]types.AttributeValue{
-			"PK":      &types.AttributeValueMemberS{Value: phoneNumber},
+			"PK":      &types.AttributeValueMemberS{Value: id.String()},
 			"code":    &types.AttributeValueMemberS{Value: c},
 			"status":  &types.AttributeValueMemberS{Value: code.PENDING},
 			"expires": &types.AttributeValueMemberN{Value: fmt.Sprintf("%d", time.Now().Add(time.Minute*5).Unix())},
 		},
+		ConditionExpression: aws.String("attribute_not_exists(PK)"),
 	})
 
 	if err != nil {
@@ -66,10 +74,12 @@ func Handler(ctx context.Context, event Request) (Response, error) {
 	log.Printf("(%s) sent code to phone number %s", *publishResponse.MessageId, phoneNumber)
 
 	msg := struct {
+		Id          string
 		Xapikey     string
 		Code        string
 		PhoneNumber string
 	}{
+		id.String(),
 		xapikey,
 		c,
 		phoneNumber,
@@ -77,8 +87,18 @@ func Handler(ctx context.Context, event Request) (Response, error) {
 
 	log.Println(ToJSON(msg))
 
+	var buf bytes.Buffer
+	body, err := json.Marshal(code.Response{Id: id.String()})
+	if err != nil {
+		log.Println(err)
+		return Response{StatusCode: http.StatusInternalServerError}, nil
+	}
+	json.HTMLEscape(&buf, body)
+
 	resp := Response{
-		StatusCode: 200,
+		StatusCode:      200,
+		IsBase64Encoded: false,
+		Body:            buf.String(),
 	}
 
 	return resp, nil

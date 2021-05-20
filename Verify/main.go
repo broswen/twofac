@@ -31,13 +31,13 @@ var dynamoClient *dynamodb.Client
 
 func Handler(ctx context.Context, event Request) (Response, error) {
 
-	phoneNumber := event.PathParameters["number"]
+	id := event.PathParameters["id"]
 	c := event.PathParameters["code"]
 
 	getItemResponse, err := dynamoClient.GetItem(context.TODO(), &dynamodb.GetItemInput{
 		TableName: aws.String(os.Getenv("CODETABLE")),
 		Key: map[string]types.AttributeValue{
-			"PK": &types.AttributeValueMemberS{Value: phoneNumber},
+			"PK": &types.AttributeValueMemberS{Value: id},
 		},
 	})
 
@@ -47,7 +47,7 @@ func Handler(ctx context.Context, event Request) (Response, error) {
 	}
 
 	if getItemResponse.Item == nil {
-		log.Println("valid code not found for ", phoneNumber)
+		log.Println("valid code not found for ", id)
 		return Response{StatusCode: http.StatusNotFound}, nil
 	}
 
@@ -65,6 +65,25 @@ func Handler(ctx context.Context, event Request) (Response, error) {
 
 	if expires < int(time.Now().Unix()) {
 		return Response{StatusCode: http.StatusUnauthorized}, nil
+	}
+
+	_, err = dynamoClient.UpdateItem(context.TODO(), &dynamodb.UpdateItemInput{
+		TableName: aws.String(os.Getenv("CODETABLE")),
+		Key: map[string]types.AttributeValue{
+			"PK": &types.AttributeValueMemberS{Value: id},
+		},
+		UpdateExpression: aws.String("SET #s = :s"),
+		ExpressionAttributeNames: map[string]string{
+			"#s": "status",
+		},
+		ExpressionAttributeValues: map[string]types.AttributeValue{
+			":s": &types.AttributeValueMemberS{Value: code.VERIFIED},
+		},
+	})
+
+	if err != nil {
+		log.Println(err)
+		return Response{StatusCode: http.StatusInternalServerError}, nil
 	}
 
 	resp := Response{

@@ -24,6 +24,7 @@ provider:
       Action:
         - dynamodb:GetItem
         - dynamodb:PutItem
+        - dynamodb:UpdateItem
       Resource: !GetAtt CodeTable.Arn
     - Effect: Allow
       Action:
@@ -50,7 +51,7 @@ functions:
     handler: bin/verify
     events:
       - http:
-          path: /verify/{number}/{code}
+          path: /verify/{id}/{code}
           method: post
           private: true
 

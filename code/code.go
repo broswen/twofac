@@ -6,6 +6,10 @@ import (
 	"math/rand"
 )
 
+type Response struct {
+	Id string `json:"id"`
+}
+
 const (
 	PENDING  = "PENDING"
 	VERIFIED = "VERIFIED"
